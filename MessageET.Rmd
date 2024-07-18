@@ -1,0 +1,87 @@
+---
+title: "MessageET"
+author: "Niklas D"
+date: "2024-07-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(forecast)
+library(Epi)
+library(emmeans)
+library(easystats)
+library(brms)
+library(pscl)
+```
+
+## Read Data
+# TODO: fill up
+```{r read data}
+data_war <- read_xlsx("Kategorie_Krieg.xlsx") %>% 
+  rename(day = "44563",
+         war = "0") %>% 
+  mutate(war = factor(war, levels = c(0,1), labels = c("0" = "no", "1" = "yes")),
+         day = as.Date(day)) %>% 
+  group_by(day, war) %>% 
+  summarise(count_war = n()) %>% 
+  pivot_wider(names_from = war,names_prefix = "war_", values_from = count_war, values_fill = 0) %>% 
+  group_by(day) %>% 
+  mutate(war_pct = round(war_yes / (war_no + war_yes) * 100, 2),
+         messages = war_no + war_yes) %>% 
+  ungroup() %>% 
+  complete(day = seq.Date(min(day), max(day), by = "day")) %>% 
+  mutate(pre_ukr = case_when(day < as.Date("2022-02-24") ~ "before",
+                             day >= as.Date("2022-02-24") ~ "after"),
+         t = row_number()) %>% 
+  
+  
+  #NA replacement
+  #Attention: artifical generation process of data by me 
+  mutate(across(c(war_yes, war_no, war_pct, messages), ~if_else(is.na(.), 0,. )))
+
+
+
+```
+
+
+## Plot
+
+```{r}
+ggplot(data_war, aes(x = day, y = war_pct)) +
+  geom_point() +
+  geom_vline(xintercept = as.Date("2022-02-24"))
+```
+
+## Model 1
+```{r}
+model_1 <- glm(war_yes ~  offset(log(messages)) + pre_ukr + t, data = data_war, family = poisson)
+
+summary(model_1)
+
+
+ZI_poss_1 <- zeroinfl(war_yes ~ 1 +  pre_ukr + t, data = data_war)
+summary(ZI_poss_1)
+estimate_expectation(ZI_poss_1)
+
+```
+Sieht nicht so aus, aber was, wenn wir die Daten zurecht schneiden?
+
+
+```{r}
+ZI_poss_2 <- zeroinfl(war_yes ~ 1 +  pre_ukr + t, data = data_war %>% filter(t <= 94))
+summary(ZI_poss_2)
+estimate_expectation(ZI_poss)
+
+
+data_war %>% filter(t <= 106)
+```
+Auch nicht
+
+
+```{r}
+bayes_ZI_poss <- brm(war_yes ~  offset(log(messages)) + pre_ukr + t, data = data_war, family = "zero_inflated_poisson", file = "ZI_poission_war")
+```
+
+
