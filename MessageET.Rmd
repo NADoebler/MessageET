@@ -41,8 +41,8 @@ data_war <- read_xlsx("Kategorie_Krieg.xlsx") %>%
   #Attention: artifical generation process of data by me 
   mutate(across(c(war_yes, war_no, war_pct, messages), ~if_else(is.na(.), 0,. )))
 
-
-
+usethis::use_git_config(user.name="NADoebler", user.email="niklasdoebler@hotmail.de")
+usethis::use_github()
 ```
 
 
