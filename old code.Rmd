@@ -14,6 +14,7 @@ library(emmeans)
 library(easystats)
 library(brms)
 library(pscl)
+
 ```
 
 ## Read Data
@@ -28,18 +29,19 @@ data_war <- read_xlsx("Kategorie_Krieg.xlsx") %>%
   summarise(count_war = n()) %>% 
   pivot_wider(names_from = war,names_prefix = "war_", values_from = count_war, values_fill = 0) %>% 
   group_by(day) %>% 
-  mutate(war_pct = round(war_yes / (war_no + war_yes) * 100, 2),
+  mutate(war_pct = round(war_yes / (war_no + war_yes), 2),
          messages = war_no + war_yes) %>% 
   ungroup() %>% 
   complete(day = seq.Date(min(day), max(day), by = "day")) %>% 
   mutate(pre_ukr = case_when(day < as.Date("2022-02-24") ~ "before",
                              day >= as.Date("2022-02-24") ~ "after"),
-         t = row_number()) %>% 
+         t = row_number(),
+         pre_ukr = factor(pre_ukr, levels = c("before", "after")))
   
   
   #NA replacement
-  #Attention: artifical generation process of data by me 
-  mutate(across(c(war_yes, war_no, war_pct, messages), ~if_else(is.na(.), 0,. )))
+  #Attention: artifical generation process of data by me --> DONT DO IT
+  #mutate(across(c(war_yes, war_no, war_pct, messages), ~if_else(is.na(.), 0,. )))
 
 usethis::use_git_config(user.name="NADoebler", user.email="niklasdoebler@hotmail.de")
 usethis::use_github()
@@ -49,9 +51,11 @@ usethis::use_github()
 ## Plot
 
 ```{r}
-ggplot(data_war, aes(x = day, y = war_pct)) +
+ggplot(data_war %>% filter(t <= 90), 
+       aes(x = day, y = war_pct, group = pre_ukr, color = pre_ukr)) +
   geom_point() +
-  geom_vline(xintercept = as.Date("2022-02-24"))
+  geom_vline(xintercept = as.Date("2022-02-24")) +
+  geom_smooth()
 ```
 
 ## Model 1
@@ -78,6 +82,13 @@ estimate_expectation(ZI_poss)
 data_war %>% filter(t <= 106)
 ```
 Auch nicht
+
+
+## Discontinuity binomial regression 
+```{r}
+summary(glm(war_pct ~  pre_ukr * t, data = data_war, family = binomial))
+
+```
 
 
 ```{r}
