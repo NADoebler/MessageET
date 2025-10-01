@@ -1,0 +1,88 @@
+---
+title: "Message ET Code"
+author: "Niklas D."
+format: html
+editor: visual
+---
+
+# Import packages
+
+```{r}
+library(readxl)
+library(crosstable)
+library(easystats)
+library(vtree)
+
+library(tidyverse)
+```
+
+# Import data
+
+```{r}
+message_complete_df <- read_xlsx("data/Datensatz_aktuell.xlsx") %>% 
+  mutate(across(everything(), ~ replace_na(., 0))) #Fill NAs
+
+message_complete_df_long <- message_complete_df %>% 
+  rename("A17" = "A17 miscell") %>% 
+  pivot_longer(c(B2, B11, B12, B13, A11, A12, A13, A14, A15, A16, A17, A21, A22), names_to = "name", values_to = "present") %>% 
+  separate_wider_position(name, widths = c(motive = 1, target = 1, topic = 1), too_few = "align_start") %>% 
+  mutate(target = as.numeric(target),
+         topic = as.numeric(topic)) %>% 
+  
+  #Tranlate motive
+  mutate(motive = case_when(motive == "A" ~ "Information",
+                            motive == "B" ~ "Interaction")) %>% 
+  
+  #Translate target
+  #Means different things depending on motive
+  
+  mutate(target = case_when(motive == "Information" & target == 1 ~ "ET",
+                             motive == "Information" & target == 2 ~ "Humans",
+                             
+                             motive == "Interaction" & target == 1 ~ "Affiliation",
+                             motive == "Interaction" & target == 2 ~ "Distance")) %>% 
+  #Translate topic
+  #Means different things depending on motive
+
+ mutate(topic = case_when(motive == "Information" & target == "ET" & topic == 1 ~ "Existence",
+                           motive == "Information" & target == "ET" & topic == 2 ~ "Localization",
+                           motive == "Information" & target == "ET" & topic == 3 ~ "Environment",
+                           motive == "Information" & target == "ET" & topic == 4 ~ "Physiology",
+                           motive == "Information" & target == "ET" & topic == 5 ~ "Psychology",
+                           motive == "Information" & target == "ET" & topic == 6 ~ "Knowledge",
+                           motive == "Information" & target == "ET" & topic == 7 ~ "Misc",
+                          
+                           motive == "Information" & target == "Humans" & topic == 1 ~ "Individual",
+                           motive == "Information" & target == "Humans" & topic == 2 ~ "Collective",
+                           
+                           motive == "Interaction" & target == "Affiliation" & topic == 1 ~ "Greetings",
+                           motive == "Interaction" & target == "Affiliation" & topic == 2 ~ "Contact",
+                           motive == "Interaction" & target == "Affiliation" & topic == 3 ~ "Help",
+                          
+                           motive == "Interaction" & target == "Distance" & is.na(topic) ~ NA)) %>% 
+  filter(present == 1)
+  
+
+#Check uncategorized
+
+message_complete_df %>% 
+  mutate(sumscore = rowSums(across(B2:`A17 miscell`), na.rm = TRUE)) %>% 
+  filter(sumscore == 0)
+  
+```
+
+# Descriptive table about categories
+
+Messages were coded in a way that allowed mutliple categories to apply to each message. 
+606 Messages, yielded 806 utterances. Of these 806 uttereances ....
+```{r}
+tree_interaction <- vtree(message_complete_df_long %>% filter(motive == "Interaction"),
+      "motive target topic", folder = "data")
+
+tree_information <- vtree(message_complete_df_long %>% filter(motive == "Information"),
+      "motive target topic")
+
+vtree::grVizToPNG(tree_interaction, folder = "figures")
+vtree::grVizToPNG(tree_information, folder = "figures")
+```
+
