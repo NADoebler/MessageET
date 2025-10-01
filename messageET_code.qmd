@@ -86,3 +86,24 @@ vtree::grVizToPNG(tree_interaction, folder = "figures")
 vtree::grVizToPNG(tree_information, folder = "figures")
 ```
 
+```{r}
+# alle aktuell installierten Pakete speichern
+old_packages <- installed.packages()[, "Package"]
+save(old_packages, file = "R_packages_old.RData")
+
+
+# Liste der alten Pakete laden
+load("R_packages_old.RData")
+
+# Prüfen, welche Pakete noch nicht installiert sind
+to_install <- setdiff(old_packages, installed.packages()[, "Package"])
+
+# fehlende Pakete installieren
+install.packages(to_install)
+
+# optional: Alles updaten
+update.packages(ask = FALSE)
+
+
+```
+
