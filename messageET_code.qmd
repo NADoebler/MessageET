@@ -60,7 +60,13 @@ message_complete_df_long <- message_complete_df %>%
                            motive == "Interaction" & target == "Affiliation" & topic == 3 ~ "Help",
                           
                            motive == "Interaction" & target == "Distance" & is.na(topic) ~ NA)) %>% 
-  filter(present == 1)
+  filter(present == 1) %>% 
+  mutate(pre_ukr = case_when(Datum < as.Date("2022-02-24") ~ "before",
+                             Datum >= as.Date("2022-02-24") ~ "after"),
+         pre_ukr = factor(pre_ukr, levels = c("before", "after")),
+         pre_hamas = case_when(Datum < as.Date("2023-10-07") ~ "before",
+                             Datum >= as.Date("2023-10-07") ~ "after"),
+         pre_hamas = factor(pre_ukr, levels = c("before", "after")))
   
 
 #Check uncategorized
@@ -84,6 +90,25 @@ tree_information <- vtree(message_complete_df_long %>% filter(motive == "Informa
 
 vtree::grVizToPNG(tree_interaction, folder = "figures")
 vtree::grVizToPNG(tree_information, folder = "figures")
+```
+
+
+# Sasha
+
+Question: 
+
+Does the occurrence of specific message topics change after the 24.2.2022 (Russia invades ukraine - pre_ukr) and after 7.10.2023 (Hamas attacks Israel - pre_hamas).
+
+Special focus on the War/ecocrisis theme, but also the affiliation topic. War/ecocrisis are overarching categories and not within the hierachical structure as seen in the "figures" folder. 
+
+Dates with no data points do not necessarily have 0 messages, but can also have 0 non-transcribed messages. 
+
+It is unclear which time frame we should use (7, 14, 21 days prior/past?)
+Date of occurrence is "past" 
+
+
+```{r}
+
 ```
 
 
