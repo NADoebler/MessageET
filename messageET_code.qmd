@@ -7,31 +7,38 @@ editor: visual
 
 # Import packages
 
-```{r}
-library(readxl)
+```{r setup}
+library(tidyverse)
+
+library(cmdstanr)
 library(crosstable)
 library(easystats)
+library(glue)
+library(readxl)
 library(vtree)
 
-library(tidyverse)
+ukrain_start <- as.Date("2022-02-24")
+hamas_start <- as.Date("2023-10-07")
+
+colors_pre_post <- c("#97BF0D", "#E6444F")
 ```
 
 # Import data
 
 ```{r}
-message_complete_df <- read_xlsx("data/Datensatz_aktuell.xlsx") %>% 
+message_complete_df <- read_xlsx("data/Datensatz_aktuell.xlsx") |>
   mutate(across(everything(), ~ replace_na(., 0))) #Fill NAs
 
-message_complete_df_long <- message_complete_df %>% 
-  rename("A17" = "A17 miscell") %>% 
-  pivot_longer(c(B2, B11, B12, B13, A11, A12, A13, A14, A15, A16, A17, A21, A22), names_to = "name", values_to = "present") %>% 
-  separate_wider_position(name, widths = c(motive = 1, target = 1, topic = 1), too_few = "align_start") %>% 
+message_complete_df_long <- message_complete_df |> 
+  rename("A17" = "A17 miscell") |> 
+  pivot_longer(c(B2, B11, B12, B13, A11, A12, A13, A14, A15, A16, A17, A21, A22), names_to = "name", values_to = "present") |> 
+  separate_wider_position(name, widths = c(motive = 1, target = 1, topic = 1), too_few = "align_start") |> 
   mutate(target = as.numeric(target),
-         topic = as.numeric(topic)) %>% 
+         topic = as.numeric(topic)) |> 
   
   #Tranlate motive
   mutate(motive = case_when(motive == "A" ~ "Information",
-                            motive == "B" ~ "Interaction")) %>% 
+                            motive == "B" ~ "Interaction")) |> 
   
   #Translate target
   #Means different things depending on motive
@@ -40,7 +47,7 @@ message_complete_df_long <- message_complete_df %>%
                              motive == "Information" & target == 2 ~ "Humans",
                              
                              motive == "Interaction" & target == 1 ~ "Affiliation",
-                             motive == "Interaction" & target == 2 ~ "Distance")) %>% 
+                             motive == "Interaction" & target == 2 ~ "Distance")) |> 
   #Translate topic
   #Means different things depending on motive
 
@@ -59,56 +66,494 @@ message_complete_df_long <- message_complete_df %>%
                            motive == "Interaction" & target == "Affiliation" & topic == 2 ~ "Contact",
                            motive == "Interaction" & target == "Affiliation" & topic == 3 ~ "Help",
                           
-                           motive == "Interaction" & target == "Distance" & is.na(topic) ~ NA)) %>% 
-  filter(present == 1) %>% 
+                           motive == "Interaction" & target == "Distance" & is.na(topic) ~ NA)) |> 
+  filter(present == 1) |> 
   mutate(pre_ukr = case_when(Datum < as.Date("2022-02-24") ~ "before",
                              Datum >= as.Date("2022-02-24") ~ "after"),
          pre_ukr = factor(pre_ukr, levels = c("before", "after")),
          pre_hamas = case_when(Datum < as.Date("2023-10-07") ~ "before",
                              Datum >= as.Date("2023-10-07") ~ "after"),
-         pre_hamas = factor(pre_ukr, levels = c("before", "after")))
+         pre_hamas = factor(pre_hamas, levels = c("before", "after")))
   
 
 #Check uncategorized
 
-message_complete_df %>% 
-  mutate(sumscore = rowSums(across(B2:`A17 miscell`), na.rm = TRUE)) %>% 
+message_complete_df |> 
+  mutate(sumscore = rowSums(across(B2:`A17 miscell`), na.rm = TRUE)) |> 
   filter(sumscore == 0)
-  
 ```
 
 # Descriptive table about categories
 
-Messages were coded in a way that allowed mutliple categories to apply to each message. 
-606 Messages, yielded 806 utterances. Of these 806 uttereances ....
+Messages were coded in a way that allowed mutliple categories to apply to each message. 606 Messages, yielded 806 utterances. Of these 806 utterances ....
+
 ```{r}
-tree_interaction <- vtree(message_complete_df_long %>% filter(motive == "Interaction"),
+tree_interaction <- vtree(message_complete_df_long |> filter(motive == "Interaction"),
       "motive target topic", folder = "data")
 
-tree_information <- vtree(message_complete_df_long %>% filter(motive == "Information"),
+tree_information <- vtree(message_complete_df_long |> filter(motive == "Information"),
       "motive target topic")
 
 vtree::grVizToPNG(tree_interaction, folder = "figures")
 vtree::grVizToPNG(tree_information, folder = "figures")
 ```
 
-
 # Sasha
 
-Question: 
+Question:
 
 Does the occurrence of specific message topics change after the 24.2.2022 (Russia invades ukraine - pre_ukr) and after 7.10.2023 (Hamas attacks Israel - pre_hamas).
 
-Special focus on the War/ecocrisis theme, but also the affiliation topic. War/ecocrisis are overarching categories and not within the hierachical structure as seen in the "figures" folder. 
+Special focus on the War/ecocrisis theme, but also the affiliation topic. War/ecocrisis are overarching categories and not within the hierarchical structure as seen in the "figures" folder.
 
-Dates with no data points do not necessarily have 0 messages, but can also have 0 non-transcribed messages. 
+Dates with no data points do not necessarily have 0 messages, but can also have 0 non-transcribed messages.
 
-It is unclear which time frame we should use (7, 14, 21 days prior/past?)
-Date of occurrence is "past" 
+It is unclear which time frame we should use (7, 14, 21 days prior/past?) Date of occurrence is "past"
 
 
 ```{r}
+tagged_messages_df <-
+  message_complete_df_long |>
+  mutate(Tag = glue::glue("{motive}-{target}-{topic}")) |>
+  mutate(Tag = factor(Tag),
+         Tag = fct_recode(Tag, "Interaction-Distance" = "Interaction-Distance-NA")) |>
+  group_by(Datum, Tag) |>
+  summarise(N = n(), .groups = "drop") |>
+  complete(Datum, Tag, fill = list("N" = 0)) |>
+  group_by(Datum) |>
+  mutate(Ntotal = sum(N),
+         P = N / Ntotal) |>
+  ungroup()
+
+war_messages_df <-
+  message_complete_df_long |>
+    group_by(Datum) |>
+    summarise(N = sum(War),
+              Ntotal = n(),
+              P = N / Ntotal, 
+              .groups = "drop") |>
+    add_column(Tag = "War")
+
+eco_messages_df <-
+  message_complete_df_long |>
+    group_by(Datum) |>
+    summarise(N = sum(Ökokrise),
+              Ntotal = n(),
+              P = N / Ntotal, 
+              .groups = "drop") |>
+    add_column(Tag = "Ecology")
+
+all_tags <-
+  bind_rows(war_messages_df, eco_messages_df, tagged_messages_df) |>
+  mutate(Tag = fct_inorder(Tag))
+
+```
+
+Ukrainian war
+```{r}
+ukrain_tags <-
+  all_tags |>
+  filter(Datum < as.Date("2023-01-01")) |>
+  mutate(Day = as.integer(difftime(Datum, ukrain_start, units = "days")),
+         AbsDay = abs(Day)) |>
+  mutate(Period  = ifelse(Day < 0, "Pre", "Post"),
+         Period = factor(Period, levels = c("Pre", "Post")))
+
+# Looking at Ukrainian war via counts
+ggplot(ukrain_tags, aes(x = Datum, y = N, color = Period)) + 
+  geom_point(show.legend = FALSE) +
+  facet_wrap(. ~ Tag, scales = "free_y")
+
+ggplot(ukrain_tags, aes(x = Datum, y = P, color = Period)) + 
+  geom_point(show.legend = FALSE) +
+  facet_wrap(. ~ Tag, scales = "free_y")
+```
+
+Hamas attack
+```{r}
+hamas_tags <-
+  all_tags |>
+  filter(Datum > as.Date("2023-01-01")) |>
+  mutate(Day = as.integer(difftime(Datum, hamas_start, units = "days")),
+         AbsDay = abs(Day)) |>
+  mutate(Period  = ifelse(Day < 0, "Pre", "Post"),
+         Period = factor(Period, levels = c("Pre", "Post")))
+
+ggplot(hamas_tags, aes(x = Datum, y = N, color = Period)) + 
+  geom_point(show.legend = FALSE) +
+  facet_wrap(. ~ Tag, scales = "free_y")
+
+ggplot(hamas_tags, aes(x = Datum, y = P, color = Period)) + 
+  geom_point(show.legend = FALSE) +
+  facet_wrap(. ~ Tag, scales = "free_y")
+
+```
+
+## Statistical analysis
+
+### Binomial
+
+Binomial model for War/Ecology tags
+```{r}
+binomial <- cmdstan_model("stan/binomial.stan")
+
+binom_prediction <- function(params, max_days_pre, max_days_post, iteration) {
+  bind_rows(
+    tibble(Day = seq(-max_days_pre, 0),
+           AbsDay = abs(Day),
+           P = kilter::inv_logit(params[1] + params[3] * Day),
+           Period = "Pre"),
+        tibble(Day = seq(0, max_days_post),
+           AbsDay = Day,
+           P = kilter::inv_logit(params[2] + params[4] * Day),
+           Period = "Post")
+  ) |>
+  mutate(Period = factor(Period, levels = c("Pre", "Post")),
+         Iteration = iteration)
+}
+
+comparison_for_binomial <- function(tags_df, event, tag){
+  crnt_tags_df <-
+    tags_df |>
+    filter(Tag == tag)
+  
+  max_days_pre <- abs(min(crnt_tags_df$Day))
+  max_days_post <- max(crnt_tags_df$Day)
+  max_days <- min(max_days_pre, max_days_post)
+  
+  
+  crnt_stan_data <- list(
+    N = nrow(crnt_tags_df),
+    Ntag = crnt_tags_df$N,
+    Ntotal = crnt_tags_df$Ntotal,
+    Day = crnt_tags_df$Day
+  )
+  
+  fit <- binomial$sample(crnt_stan_data, chains = 4, parallel_chains = future::availableCores())
+  draws <- fit$draws(format = "df") |> as_tibble()
+  
+  # comparing predictions for day zero
+  day_zero <-
+    draws |>
+    select(starts_with("alpha")) |>
+    rename("Pre" = 1, "Post" = 2) |>
+    mutate(across(everything(), ~boot::inv.logit(.)))
+  
+  day_zero_diff <-
+    day_zero |>
+    mutate(D = Post - Pre) |>
+    summarise(Info = sprintf("Post-Per=%.2f [%.2f, %.2f]\nP(Post>Pre)=%.1f%%", median(D), kilter::lower_ci(D), kilter::upper_ci(D), 100 * mean(D>0)), .groups = "drop") |>
+    pull(Info)
+  
+  day_zero |>
+    pivot_longer(everything(), names_to = "Period", values_to = "P") |>
+    mutate(Period = factor(Period, levels = c("Pre", "Post"))) |>
+  ggplot(aes(x = Period, y = P, color = Period, fill = Period)) +
+    geom_boxplot(outlier.shape = NA, show.legend = FALSE, alpha = 0.5) +
+    # geom_violin(show.legend = FALSE, alpha = 0.5) +
+    labs(title = glue::glue("{event} - {tag}: Day zero predictions"),
+         subtitle = day_zero_diff) +
+    scale_color_manual(values = colors_pre_post) +
+    scale_fill_manual(values = colors_pre_post)
+  
+  ggsave(glue("figures/{event}-{tag}-DayZero.png"), units = "cm", width = 12, height = 10)
+  
+  # comparing predictions for N-days pre/post event
+  binom_params <- 
+    select(draws, starts_with("alpha"), starts_with("beta")) |>
+    as.matrix()
+  
+
+  
+  posterior_predictions <- purrr::map(1:nrow(binom_params), ~binom_prediction(binom_params[., ], max_days_pre, max_days_post, .), .progress = TRUE) |> list_rbind()
+  
+  posterior_avg <-
+    posterior_predictions |>
+    group_by(Period, AbsDay) |>
+    summarise(Avg = mean(P),
+              LowerCI = kilter::lower_ci(P),
+              UpperCI = kilter::upper_ci(P),
+              .groups = "drop")
+  
+  
+  posterior_pairwise <-
+    posterior_predictions |>
+    select(-Day) |>
+    pivot_wider(names_from = Period, values_from = P) |>
+    drop_na() |>
+    mutate(D = Post - Pre) |>
+    group_by(AbsDay) |>
+    summarise(Info = sprintf("%.2f\n%.2f\n%.2f\n%.1f%%", kilter::lower_ci(D), median(D), kilter::upper_ci(D), 100 * mean(D > 0)),
+              P = mean(D > 0),
+              .groups = "drop") |>
+    arrange(AbsDay)
+    
+    
+  
+  ggplot(crnt_tags_df |> filter(AbsDay > 0), aes(x = AbsDay, y = P, color = Period))  +
+    geom_point(data = posterior_pairwise, color = "black")+
+    geom_hline(yintercept = c(0.9, 0.95), linetype = "dashed") +
+    geom_ribbon(data = posterior_avg, aes(y = Avg, ymin = LowerCI, ymax = UpperCI, fill = Period), color = NA, alpha = 0.35) +
+    geom_line(data = posterior_avg, aes(y = Avg)) +
+    geom_point() +
+    scale_x_continuous(name = "Day") +
+    scale_y_continuous(name = "Probability of message", sec.axis = dup_axis(name = NULL, breaks = c(0.9, 0.95))) +
+    scale_color_manual(values = colors_pre_post) +
+    scale_fill_manual(values = colors_pre_post) +
+    labs(title = glue::glue("{event} - {tag}"))
+  
+  
+  ggsave(glue("figures/{event}-{tag}.png"), units = "cm", width = 24, height = 14)
+}
+
+events_tags <- list("Ukraine" = ukrain_tags,
+                    "Hamas" = hamas_tags)
+
+for(event in names(events_tags)) {
+  for(a_tag in levels(all_tags$Tag)) {
+    comparison_for_binomial(events_tags[[event]], event, a_tag)
+  }  
+}
+```
+
+Cumulative binomial
+```{r}
+binomuial_cum_model <- cmdstan_model("stan/binomial_cum.stan")
+
+
+comparison_for_cumulative_binomuial <- function(tags_df, event, tag){
+  crnt_tags_df <-
+    tags_df |>
+    filter(Tag == tag)
+  
+  max_days <- 
+    crnt_tags_df |>
+    select(Period, AbsDay) |>
+    group_by(AbsDay) |>
+    count() |>
+    filter(n == 2) |>
+    pull(AbsDay) |>
+    max()
+  
+  
+  cum_df <-
+    crnt_tags_df |>
+    filter(AbsDay > 0, AbsDay <= max_days) |>
+    group_by(Period) |>
+    arrange(AbsDay) |>
+    mutate(CumN = cumsum(N),
+           CumNtotal = cumsum(Ntotal)) |>
+    ungroup() |>
+    mutate(AbsDay = factor(AbsDay, levels = 1:max_days)) |>
+    complete(Period, AbsDay) |>
+    group_by(Period) |>
+    fill(CumN, CumNtotal, .direction = "down") |>
+    ungroup() |>
+    mutate(AbsDay = as.integer(AbsDay)) |>
+    arrange(Period, AbsDay) |>
+    mutate(P = CumN / CumNtotal,
+           LowerCI = binom::binom.exact(CumN, CumNtotal)$lower,
+           UpperCI = binom::binom.exact(CumN, CumNtotal)$upper)
+  
+
+    
+  binom_cum_stan_data <- list(
+    DaysN = max_days,
+    Ntag = cum_df$CumN,
+    Ntotal = cum_df$CumNtotal,
+    Period= as.integer(cum_df$Period),
+    AbsDay = cum_df$AbsDay)
+  
+  binom_cum_fit <- binomuial_cum_model$sample(binom_cum_stan_data, chains = 4, parallel_chains = future::availableCores())
+  binom_cum_draws <- binom_cum_fit$draws(format = "df") |> as_tibble()
+  
+  binom_cum_posterior <-
+    binom_cum_draws |>
+    select(.draw, starts_with("p")) |>
+    pivot_longer(starts_with("p"), names_to = "Term", values_to = "P") |>
+    mutate(Indexes = str_extract_all(Term, "\\d+"),
+           AbsDay = purrr::map_int(Indexes, ~as.integer(.[[1]])),
+           Period = factor(purrr::map_chr(Indexes, ~.[[2]]), labels = levels(crnt_tags_df$Period))) |>
+    select(-Term, -Indexes)
+  
+  binom_cum_posterior_avg <-
+    binom_cum_posterior|>
+    group_by(Period, AbsDay) |>
+    summarise(Avg = median(P),
+              LowerCI = kilter::lower_ci(P),
+              UpperCI = kilter::upper_ci(P),
+              .groups = "drop")
+  
+  binom_cum_diff <-
+    binom_cum_posterior |>
+    pivot_wider(names_from = Period, values_from = P) |>
+    group_by(AbsDay) |>
+    summarise(P = mean(Post - Pre > 0), .groups = "drop")
+  
+  ggplot(cum_df, aes(x = AbsDay, y = P, color = Period)) +
+    geom_hline(yintercept = c(0.9, 0.95), linetype = "dashed") +
+    geom_ribbon(data = binom_cum_posterior_avg, aes(y = Avg, ymin = LowerCI, ymax = UpperCI, fill = Period), color = NA, alpha = 0.35) +
+    geom_point(data = binom_cum_diff, color = "black") +
+    geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI)) +
+    geom_line() +
+    geom_point() +
+    scale_color_manual(values = colors_pre_post) +
+    scale_fill_manual(values = colors_pre_post) +
+    scale_y_continuous(name = "Probability of message", sec.axis = dup_axis(name = NULL, breaks = c(0.9, 0.95))) +
+    scale_x_continuous(name = "Day") +
+    labs(title = glue::glue("{event} - {tag}"))
+  
+  ggsave(glue("figures/cumulative-{event}-{tag}.png"), units = "cm", width = 24, height = 14)
+}
+
+for(event in names(events_tags)) {
+  for(a_tag in levels(all_tags$Tag)) {
+    comparison_for_cumulative_binomuial(events_tags[[event]], event, a_tag)
+  }  
+}
+```
+
+
+### Multinomial
+```{r}
+categorical_model <- cmdstan_model("stan/categorical.stan")
+
+  crnt_tags_df <-
+    tags_df |>
+    filter(!(Tag %in% c("War", "Ecology"))) |>
+    mutate(Tag = fct_drop(Tag))
+
+  max_days_in_period <- c("Pre" = abs(min(crnt_tags_df$Day)), "Post" =  max(crnt_tags_df$Day))
+  max_days <- min(max_days_in_period)
+  
+  cat_stan_data <- list(
+    N = nrow(crnt_tags_df),
+    TagsN = nlevels(crnt_tags_df$Tag),
+    Tag = as.integer(crnt_tags_df$Tag),
+    Day = as.integer(crnt_tags_df$Day)
+  )
+  
+  cat_fit <- categorical_model$sample(cat_stan_data, chains = 4, parallel_chains = future::availableCores())
+  cat_draws <- cat_fit$draws(format = "df") |> as_tibble()
+  saveRDS(cat_draws, "draws-categorical-ukraine.RDS")
+```
+
+```{r}
+  # extracting alpha and beta for linear models
+  alpha2 <-
+    kilter::parse_stan_posterior_array(cat_draws, "alpha", list("Tag" = levels(crnt_tags_df$Tag)[-1], "Period" = c("Pre", "Post")), "alpha") |>
+    mutate(Tag = as.character(Tag))
+  alpha <- bind_rows(
+    alpha2, 
+    alpha2 |>
+      group_by(.chain, .draw, Period) |>
+      summarise(.groups = "drop") |>
+      mutate(alpha = 0, Tag = levels(crnt_tags_df$Tag)[1])) |>
+  mutate(Tag = factor(Tag, levels = levels(crnt_tags_df$Tag)),
+         Period = factor(Period, levels = levels(crnt_tags_df$Period)))
+
+  beta2 <- 
+    kilter::parse_stan_posterior_array(cat_draws, "beta", list("Tag" = levels(crnt_tags_df$Tag)[-1], "Period" = c("Pre", "Post")), "beta") |>
+    mutate(Tag = as.character(Tag))
+  beta <- bind_rows(
+    beta2, 
+    beta2 |>
+      group_by(.chain, .draw, Period) |>
+      summarise(.groups = "drop") |>
+      mutate(beta = 0, Tag = levels(crnt_tags_df$Tag)[1])) |>
+  mutate(Tag = factor(Tag, levels = levels(crnt_tags_df$Tag)),
+         Period = factor(Period, levels = levels(crnt_tags_df$Period)))
+  ab <- 
+    left_join(alpha, beta, by = c(".chain", ".draw", "Tag", "Period")) |>
+    select(-.chain) |>
+    arrange(.draw, Period, Tag)
+
+  compute_categorical_p_single_day <- function(params_df, day){
+    params_df |>
+      mutate(score = exp(alpha + beta * day),
+             P = score / sum(score)) |>
+      select(.draw, Tag, P) |>
+      mutate(AbsDay = day)
+  }
+  
+  compute_categorical_p <- function(params_df, period) {
+    purrr::map(0:max_days_in_period[period], ~compute_categorical_p_single_day(params_df, .)) |>
+      list_rbind()
+  }
+
+  ab_pre <- filter(ab, Period == "Pre")
+  categorical_predictions_pre <- purrr::map(1:max(ab_pre$.draw), ~filter(ab_pre, .draw == .) |> compute_categorical_p("Pre"), .progress = TRUE) |> list_rbind()
+  categorical_predictions_pre$Period <- "Pre"
+  saveRDS(categorical_predictions_pre, "cat-predictions-pre-ukraine.RDS")
+
+  ab_post <- filter(ab, Period == "Post")
+  categorical_predictions_post <- purrr::map(1:max(ab_post$.draw), ~filter(ab_post, .draw == .) |> compute_categorical_p("Post"), .progress = TRUE) |> list_rbind()
+  categorical_predictions_post$Period <- "Post"
+  saveRDS(categorical_predictions_post, "cat-predictions-post-ukraine.RDS")
+
+  categorial_predictions <- 
+    bind_rows(categorical_predictions_pre, categorical_predictions_post) |>
+    mutate(Period = factor(Period, levels = c("Pre", "Post")))
+  saveRDS(categorial_predictions, "cat-predictions-ukraine.RDS")
+  
+  categorial_predictions_avg <-
+    categorial_predictions |>
+    group_by(Tag, Period, AbsDay) |>
+    summarise(Avg = mean(P),
+              LowerCI = kilter::lower_ci(P),
+              UpperCI = kilter::upper_ci(P),
+              .groups = "drop")
+  
+  categorial_diff <-
+    categorial_predictions |>
+      group_by(Tag, AbsDay, Period) |>
+      mutate(Iteration = 1:n()) |>
+      pivot_wider(values_from = P, names_from = Period) |>
+      summarise(P = mean(Post > Pre), .groups = "drop")
+    
+  
+    
+  ggplot(crnt_tags_df, aes(x = AbsDay, y = P, color = Period)) +
+    geom_hline(yintercept = c(0.9, 0.95), linetype = "dashed") +
+    geom_point(data = categorial_diff, color = "black") +
+    geom_ribbon(data = categorial_predictions_avg, aes(y = Avg, ymin = LowerCI, ymax = UpperCI, fill = Period), color = NA, alpha = 0.35) +
+    geom_line(data = categorial_predictions_avg, aes(y = Avg)) +
+    geom_point() +
+    facet_wrap(. ~ Tag) +
+    scale_x_continuous(name = "Day") +
+    scale_y_continuous(name = "Probability of message", sec.axis = dup_axis(name = NULL, breaks = c(0.9, 0.95))) +
+    scale_color_manual(values = colors_pre_post) +
+    scale_fill_manual(values = colors_pre_post) +
+    labs(title = glue::glue("{event}"))
+
+
+    
+```
+
+
+
+Fixed period
+```{r}
+period_days_n <- 14
+
+ukrain_tags |>
+  mutate(Delta = Datum - ukrain_start) |>
+  filter(Datum >= ukrain_start - as.difftime(period_days_n, units = "days"),
+         Datum <= ukrain_start + as.difftime(period_days_n, units = "days")) |>
+ggplot(aes(x = Datum, y = P, color = PreWar)) + 
+  geom_point(show.legend = FALSE) +
+  facet_wrap(. ~ Tag, scales = "free_y")  
 
 ```
 
 
+
+```{r}
+message_complete_df_long |>
+  group_by(Datum, pre_ukr, pre_hamas) |>
+  summarise(TotalWar = sum(War),
+            N = n(),
+            .groups = "drop") |>
+ggplot(aes(x = Datum, y = N, color = pre_hamas)) +
+  geom_point()
+```
