@@ -5,6 +5,17 @@ format: html
 editor: visual
 ---
 
+## Methods
+
+All models were encoded using Stan probabilistic programming language. 
+
+### Binomial discontinuity model
+For each message type event (either the beginning of the Russian-Ukraine war or the attack of the Hamas), we created a binomial discontinuity model that had separate logistics regression parts for the period preceding the event  and the period after the event. The day of the event was not included when fitting the model. We sampled posterior distributions for all parameters and used them to generate predictions for the day the event. I.e., we compared predictions for the day of the event based on a trend before and after the event. We also computed posterior predicted value for each day and compared them pairwise between the two periods (e.g., one day before the event versus one day after the event).
+
+### Cumulative binomial model
+For each message type and event, we computed number of entries for each message type and the total number of messages for periods that span the same number of days before and after the event. We fitted a binomial model for each period comparing proportion of message before and after the event.
+
+
 # Import packages
 
 ```{r setup}
